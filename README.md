@@ -61,7 +61,8 @@ source ~/.cargo/env
 ### 3. Build & install
 
 ```bash
-cd clipboard-capture
+git clone https://github.com/prathamrajbhar/ClipSnap.git
+cd ClipSnap
 cargo build --release
 sudo cp target/release/clipsnap /usr/local/bin/
 ```
@@ -129,6 +130,16 @@ rm -rf ~/.config/clipboard-capture
 rm -f ~/.config/systemd/user/clipsnap.service
 ```
 
+## Community & Contributing
+
+We welcome contributions! Please see our:
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+
 ## License
 
-MIT
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
