@@ -1,0 +1,25 @@
+[shortcuts]
+screenshot = "Ctrl+Alt+S"
+history = "Alt+H"
+
+[capture]
+format = "png"
+quality = 95
+show_dimensions = true
+
+[history]
+max_entries = 500
+retention_days = 7
+auto_cleanup = true
+
+[storage]
+database_path = "~/.config/clipboard-capture/history.db"
+image_storage = "database"
+
+[ui]
+theme = "auto"
+thumbnail_size = 150
+notification_duration = 2
+
+[privacy]
+exclude_passwords = true

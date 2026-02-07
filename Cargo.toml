@@ -1,0 +1,38 @@
+[package]
+name = "clipsnap"
+version = "1.0.0"
+edition = "2021"
+description = "ClipSnap: Smart Area Screenshot & Clipboard History Manager for Linux"
+license = "MIT"
+authors = ["ClipSnap Team"]
+readme = "README.md"
+repository = "https://github.com/yourusername/clipsnap"
+
+[dependencies]
+gtk4 = "0.7"
+gdk4 = "0.7"
+gdk-pixbuf = "0.18"
+cairo-rs = "0.18"
+glib = "0.18"
+gio = "0.18"
+x11rb = { version = "0.13", features = ["randr"] }
+image = "0.24"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+global-hotkey = "0.5"
+notify-rust = "4"
+arboard = "3"
+chrono = "0.4"
+anyhow = "1"
+thiserror = "1"
+dirs = "5"
+log = "0.4"
+env_logger = "0.10"
+enigo = "0.6.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

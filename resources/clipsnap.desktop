@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ClipSnap
+Comment=Area Screenshot & Clipboard History Manager
+Exec=clipsnap
+Icon=accessories-clipboard
+Categories=Utility;
+StartupNotify=false
+Terminal=false
+X-GNOME-Autostart-enabled=true
