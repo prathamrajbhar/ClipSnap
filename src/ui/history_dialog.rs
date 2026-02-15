@@ -1,5 +1,5 @@
 use crate::models::{ContentType, HistoryEntry};
-use crate::{clipboard, database::Database, notifications};
+use crate::{clipboard, database::Database};
 use arboard::Clipboard;
 use enigo::{Enigo, Key};
 use gdk4;
@@ -457,8 +457,6 @@ fn restore_entry_to_clipboard(
             }
         }
     }
-
-    notifications::notify_clipboard_restored();
 }
 
 /// Load a `gdk_pixbuf::Pixbuf` from PNG bytes.

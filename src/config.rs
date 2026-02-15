@@ -65,8 +65,8 @@ impl Default for Config {
                 show_dimensions: true,
             },
             history: HistoryConfig {
-                max_entries: 500,
-                retention_days: 7,
+                max_entries: 200,
+                retention_days: 5,
                 auto_cleanup: true,
             },
             storage: StorageConfig {
@@ -161,8 +161,8 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.shortcuts.screenshot, "Ctrl+Alt+S");
         assert_eq!(config.shortcuts.history, "Alt+H");
-        assert_eq!(config.history.max_entries, 500);
-        assert_eq!(config.history.retention_days, 7);
+        assert_eq!(config.history.max_entries, 200);
+        assert_eq!(config.history.retention_days, 5);
     }
 
     #[test]

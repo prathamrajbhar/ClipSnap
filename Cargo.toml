@@ -9,30 +9,32 @@ readme = "README.md"
 repository = "https://github.com/yourusername/clipsnap"
 
 [dependencies]
-gtk4 = "0.7"
-gdk4 = "0.7"
-gdk-pixbuf = "0.18"
-cairo-rs = "0.18"
-glib = "0.18"
-gio = "0.18"
-x11rb = { version = "0.13", features = ["randr"] }
-image = "0.24"
-rusqlite = { version = "0.31", features = ["bundled"] }
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+gtk4 = { version = "0.7", default-features = false, features = ["v4_6"] }
+gdk4 = { version = "0.7", default-features = false }
+gdk-pixbuf = { version = "0.18", default-features = false }
+cairo-rs = { version = "0.18", default-features = false }
+glib = { version = "0.18", default-features = false }
+gio = { version = "0.18", default-features = false }
+x11rb = { version = "0.13", default-features = false, features = ["randr"] }
+image = { version = "0.24", default-features = false, features = ["png"] }
+rusqlite = { version = "0.31", default-features = false, features = ["bundled"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
 global-hotkey = "0.5"
-notify-rust = "4"
-arboard = "3"
-chrono = "0.4"
+notify-rust = { version = "4", default-features = false, features = ["d"] }
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 anyhow = "1"
 thiserror = "1"
 dirs = "5"
-log = "0.4"
-env_logger = "0.10"
+log = { version = "0.4", default-features = false }
+env_logger = { version = "0.10", default-features = false }
 enigo = "0.6.1"
 
 [profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
+opt-level = "z"       # Optimize for size
+lto = "fat"           # Full link-time optimization
+codegen-units = 1     # Better optimization, slower compile
+strip = true          # Strip symbols
+panic = "abort"       # Smaller panic handler
+overflow-checks = false  # Disable overflow checks in release

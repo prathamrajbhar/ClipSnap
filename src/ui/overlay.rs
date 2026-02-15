@@ -198,8 +198,8 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
             let clipboard = clipboard.clone();
             
             // Note: We move the actual capture/processing to a closure to run after the window is hidden
-            // Wait a bit longer (150ms) for the window to actually vanish from the compositor's view
-            glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+            // Wait 100ms for the window to actually vanish from the compositor's view
+            glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
                 match screenshot::capture_region(global_x, global_y, sel_w, sel_h) {
                     Ok((raw_bgra, width, height)) => {
                         let rgba = screenshot::bgra_to_rgba(&raw_bgra);

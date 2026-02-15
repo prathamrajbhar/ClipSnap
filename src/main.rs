@@ -132,7 +132,7 @@ fn main() {
         let db_hotkey = db_activate.clone();
         let cb_hotkey = cb_activate.clone();
         let hold_guard = app.hold();
-        glib::timeout_add_local(Duration::from_millis(50), move || {
+        glib::timeout_add_local(Duration::from_millis(100), move || {
             let _hold = &hold_guard;
             let _keep = &hotkey_manager;
 
@@ -155,7 +155,6 @@ fn main() {
             glib::ControlFlow::Continue
         });
 
-        notifications::notify_daemon_started();
         log::info!("ClipSnap ready");
     });
 

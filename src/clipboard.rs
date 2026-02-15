@@ -36,7 +36,7 @@ fn calculate_hash(data: &[u8]) -> u64 {
 }
 
 /// Run clipboard monitoring in a background thread.
-/// Polls the clipboard every 500ms and stores new content to the database.
+/// Polls the clipboard every 750ms (adaptive) and stores new content to the database.
 pub fn monitor_clipboard(
     clipboard: Arc<Mutex<Clipboard>>,
     db: Arc<Mutex<Database>>,
@@ -45,8 +45,16 @@ pub fn monitor_clipboard(
 ) {
     log::info!("Clipboard monitoring started");
 
+    let mut no_change_count = 0u32;
+    
     loop {
-        std::thread::sleep(Duration::from_millis(500));
+        // Adaptive polling: slow down if no changes detected
+        let poll_interval = if no_change_count > 5 {
+            1000 // 1 second when idle
+        } else {
+            750  // 750ms normally
+        };
+        std::thread::sleep(Duration::from_millis(poll_interval));
 
         let mut cb = match clipboard.lock() {
             Ok(c) => c,
@@ -55,6 +63,8 @@ pub fn monitor_clipboard(
                 continue;
             }
         };
+
+        let mut changed = false;
 
         // --- Check text ---
         if let Ok(text) = cb.get_text() {
@@ -65,6 +75,7 @@ pub fn monitor_clipboard(
                     *last != Some(hash)
                 };
                 if is_new {
+                    changed = true;
                     if let Ok(db) = db.lock() {
                         if db.insert_text(&text).is_ok() {
                             log::debug!("Stored text clipboard entry ({} bytes)", text.len());
@@ -84,6 +95,7 @@ pub fn monitor_clipboard(
                     *last != Some(hash)
                 };
                 if is_new {
+                    changed = true;
                     // Convert RGBA to PNG and generate thumbnail
                     let width = img.width as u32;
                     let height = img.height as u32;
@@ -98,6 +110,13 @@ pub fn monitor_clipboard(
                     *last_image_hash.lock().unwrap() = Some(hash);
                 }
             }
+        }
+
+        // Update adaptive polling counter
+        if changed {
+            no_change_count = 0;
+        } else {
+            no_change_count = no_change_count.saturating_add(1);
         }
     }
 }

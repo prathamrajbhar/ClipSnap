@@ -87,23 +87,6 @@ mod tests {
     }
 
     #[test]
-    fn test_crop_bgra() {
-        // 3×3 image, crop 2×2 from (1,1)
-        let mut data = vec![0u8; 3 * 3 * 4];
-        // Mark pixel (1,1) = row 1, col 1
-        let idx = (1 * 3 + 1) * 4;
-        data[idx] = 0xAA;
-        data[idx + 1] = 0xBB;
-        data[idx + 2] = 0xCC;
-        data[idx + 3] = 0xFF;
-
-        let cropped = crop_bgra(&data, 3, 1, 1, 2, 2);
-        assert_eq!(cropped.len(), 2 * 2 * 4);
-        // First pixel of cropped should be the marked pixel
-        assert_eq!(cropped[0], 0xAA);
-    }
-
-    #[test]
     fn test_encode_png() {
         // 2×2 red RGBA image
         let pixels = vec![

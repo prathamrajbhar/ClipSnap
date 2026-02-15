@@ -20,8 +20,15 @@ impl Database {
         let conn = Connection::open(db_path)
             .with_context(|| format!("Failed to open database: {:?}", db_path))?;
 
-        // Enable WAL mode for better concurrent access
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+        // Enable WAL mode for better concurrent access and optimize performance
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA busy_timeout=5000;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=-16000;
+             PRAGMA temp_store=MEMORY;
+             PRAGMA mmap_size=30000000000;"
+        )?;
 
         let db = Database { conn };
         db.init_schema()?;
@@ -241,7 +248,7 @@ mod tests {
         let id = db.insert_text("hello world").unwrap();
         assert!(id > 0);
 
-        let entries = db.get_recent_entries(10).unwrap();
+        let entries = db.get_recent_entries_by_type(10, ContentType::Text).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].text_content.as_deref(), Some("hello world"));
         assert_eq!(entries[0].content_type, ContentType::Text);
@@ -288,7 +295,7 @@ mod tests {
             db.insert_text(&format!("entry {}", i)).unwrap();
         }
         db.enforce_max_entries(5).unwrap();
-        let entries = db.get_recent_entries(100).unwrap();
+        let entries = db.get_recent_entries_by_type(100, ContentType::Text).unwrap();
         assert_eq!(entries.len(), 5);
     }
 }

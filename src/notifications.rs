@@ -19,22 +19,4 @@ pub fn notify_screenshot_error(msg: &str) {
         .show();
 }
 
-/// Send a desktop notification when an item is restored from history.
-pub fn notify_clipboard_restored() {
-    let _ = notify_rust::Notification::new()
-        .summary("Clipboard Restored")
-        .body("Item copied from history")
-        .icon("edit-paste")
-        .timeout(2000)
-        .show();
-}
 
-/// Send a desktop notification that the daemon is running.
-pub fn notify_daemon_started() {
-    let _ = notify_rust::Notification::new()
-        .summary("ClipSnap Running")
-        .body("Screenshot: Ctrl+Alt+S  •  History: Alt+H")
-        .icon("accessories-clipboard")
-        .timeout(3000)
-        .show();
-}
