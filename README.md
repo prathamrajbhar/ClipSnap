@@ -72,12 +72,25 @@ echo "✅ Installation Complete!"
 
 ## 🗑️ Uninstall
 
-To remove ClipSnap completely:
+You can uninstall ClipSnap using the provided script or manually.
+
+### Quick Uninstall
+```bash
+sudo ./uninstall.sh
+```
+
+### Manual Uninstall
+To remove ClipSnap completely from your system, run:
 
 ```bash
+# 1. Remove System Files
 sudo rm /usr/local/bin/clipsnap
 sudo rm /usr/share/applications/clipsnap.desktop
 sudo rm -rf /etc/clipsnap
+
+# 2. Remove User Data (Database & Config)
+# Warning: This deletes your entire clipboard history!
+rm -rf ~/.config/clipboard-capture
 ```
 
 ---
