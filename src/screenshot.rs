@@ -110,6 +110,7 @@ pub fn create_thumbnail(png_bytes: &[u8], max_size: u32) -> Result<Vec<u8>> {
 }
 
 /// Get screen information for better coordinate mapping
+#[allow(dead_code)]
 pub fn get_screen_info() -> Result<(i32, i32, u32, u32)> {
     let (conn, screen_num) =
         RustConnection::connect(None).context("Failed to connect to X11 display")?;
