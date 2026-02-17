@@ -12,24 +12,28 @@ A lightweight screenshot & clipboard history manager for Linux.
 | `Ctrl+Alt+S` | Start area screenshot |
 | `Alt+H` | Open clipboard history |
 
-## 📦 Installation
+## 🚀 Quick Install (Clone & Run)
 
-### 1. Install dependencies:
+You can install ClipSnap directly from the terminal. This script will automatically install dependencies, build the project, and set up the desktop shortcut.
+
 ```bash
-sudo apt update && sudo apt install -y build-essential debhelper cargo rustc pkg-config \
-  libgtk-4-dev libgdk-pixbuf-2.0-dev libcairo2-dev \
-  libx11-dev libxrandr-dev libsqlite3-dev
+# 1. Clone the repository
+git clone https://github.com/prathamrajbhar/ClipSnap.git
+cd ClipSnap
+
+# 2. Run the installer
+chmod +x install.sh
+sudo ./install.sh
 ```
 
-### 2. Build .deb package:
-```bash
-./build-deb.sh
-```
+The installer supports **Debian/Ubuntu**, **Fedora**, and **Arch Linux** based systems.
 
-### 3. Install:
-```bash
-sudo apt install ./dist/clipsnap_1.0.0-1_amd64.deb
-```
+### Manual Installation (Advanced)
+If you prefer to build manually:
+1. Install dependencies: `libgtk-4-dev`, `libgdk-pixbuf-2.0-dev`, `libcairo2-dev`.
+2. Run `cargo build --release`.
+3. Copy `target/release/clipsnap` to `/usr/local/bin/`.
+4. Copy `resources/clipsnap.desktop` to `/usr/share/applications/`.
 
 ## ✅ Features
 
