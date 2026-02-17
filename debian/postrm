@@ -1,0 +1,36 @@
+#!/bin/bash
+# ClipSnap post-removal script
+
+set -e
+
+case "$1" in
+    purge)
+        echo "Purging ClipSnap configuration..."
+        
+        # Remove system-wide autostart file
+        rm -f /etc/xdg/autostart/clipsnap.desktop
+        
+        # Remove system configuration directory if empty
+        rmdir /etc/clipsnap 2>/dev/null || true
+        
+        echo "ClipSnap configuration purged."
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        echo "ClipSnap removed."
+        
+        # Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q /usr/share/applications || true
+        fi
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

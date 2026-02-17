@@ -139,12 +139,12 @@ fn main() {
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state == HotKeyState::Pressed {
                     if event.id == screenshot_id {
-                        log::info!("Screenshot hotkey pressed");
+                        log::info!("Screenshot hotkey pressed - launching capture overlay");
                         if let Some(ref app) = app_weak.upgrade() {
                             ui::overlay::show_overlay(app, db_hotkey.clone(), cb_hotkey.clone());
                         }
                     } else if event.id == history_id {
-                        log::info!("History hotkey pressed");
+                        log::info!("History hotkey pressed - opening history dialog");
                         if let Some(ref app) = app_weak.upgrade() {
                             ui::history_dialog::show_history(app, db_hotkey.clone(), cb_hotkey.clone());
                         }

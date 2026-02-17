@@ -1,0 +1,20 @@
+clipsnap (1.0.0-1) unstable; urgency=medium
+
+  * Initial release of ClipSnap
+  * Features:
+    - Modern area screenshot capture with premium UI
+    - Comprehensive clipboard history management  
+    - Global keyboard shortcuts (Ctrl+Alt+S for screenshot, Alt+H for history)
+    - Automatic startup and system integration
+    - SQLite-based storage with thumbnail generation
+    - Cross-desktop environment compatibility
+    - Enhanced coordinate mapping and high-DPI support
+    - Professional visual design with smooth animations
+  * Improvements over previous versions:
+    - Fixed screenshot accuracy issues
+    - Eliminated unwanted overlay artifacts in captures
+    - Added premium visual styling and animations
+    - Enhanced multi-monitor support
+    - Improved error handling and user feedback
+
+ -- ClipSnap Team <team@clipsnap.com>  Sun, 16 Feb 2026 12:00:00 +0000

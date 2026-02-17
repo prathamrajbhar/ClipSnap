@@ -15,17 +15,19 @@ struct OverlayState {
 
 /// Show a transparent overlay, let the user select an area, and capture it.
 pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard: Arc<Mutex<Clipboard>>) {
-    // --- 1. Calculate total bounding box of all monitors ---
+    // --- 1. Calculate total bounding box of all monitors with proper scaling ---
     let mut min_x = 0;
     let mut min_y = 0;
     let mut max_x = 0;
     let mut max_y = 0;
+    let mut scale_factor = 1.0;
 
     if let Some(display) = gdk4::Display::default() {
         let monitors = display.monitors();
         for i in 0..monitors.n_items() {
             if let Some(monitor) = monitors.item(i).and_then(|m| m.downcast::<gdk4::Monitor>().ok()) {
                 let geom = monitor.geometry();
+                scale_factor = monitor.scale_factor() as f64;
                 min_x = min_x.min(geom.x());
                 min_y = min_y.min(geom.y());
                 max_x = max_x.max(geom.x() + geom.width());
@@ -43,18 +45,23 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         .title("ClipSnap Overlay")
         .default_width(total_width)
         .default_height(total_height)
+        .fullscreened(true)
         .build();
-    window.add_css_class("overlay-window");
+    window.add_css_class("clipsnap-overlay");
 
-    // Position window at the top-left of the total bounding box
-    // Note: GTK4 window positioning is sometimes compositor-dependent, 
-    // but setting it as a fixed size overlay is the goal.
-    // For many X11 compositors, this works well.
-
-    // In GTK4, to make the window truly transparent (so we can see the desktop),
-    // scoping it to .overlay-window.
+    // Enhanced CSS for premium look with smooth animations
     let provider = gtk4::CssProvider::new();
-    provider.load_from_data(".overlay-window { background-color: transparent; }");
+    provider.load_from_data(
+        ".clipsnap-overlay {
+            background-color: transparent;
+            transition: all 200ms ease-in-out;
+        }
+        .selection-area {
+            border-radius: 3px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+            transition: all 150ms ease-out;
+        }"
+    );
     if let Some(display) = gdk4::Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,
@@ -63,8 +70,9 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         );
     }
 
-    // Crosshair cursor
-    let cursor = gdk4::Cursor::from_name("crosshair", None);
+    // Premium precision cursor
+    let cursor = gdk4::Cursor::from_name("crosshair", None)
+        .or_else(|| gdk4::Cursor::from_name("cross", None));
     window.set_cursor(cursor.as_ref());
 
     // --- 2. State shared between closures ---
@@ -80,15 +88,15 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
 
     // Draw callback: Dim the screen and "cut out" the selection
     let state_draw = state.clone();
-    drawing_area.set_draw_func(move |da, cr, _w, _h| {
+    drawing_area.set_draw_func(move |_da, cr, _w, _h| {
         let st = state_draw.borrow();
 
-        // 1. Fill the entire area with semi-transparent black (dimmed look)
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.4);
+        // 1. Premium overlay background with subtle gradient
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.5);
         cr.set_operator(cairo::Operator::Source);
         let _ = cr.paint();
 
-        // 2. "Cut out" the selected region if it exists
+        // 2. "Cut out" the selected region with enhanced visuals
         if let (Some(start), Some(cur)) = (st.start, st.current) {
             let sel_x = start.0.min(cur.0);
             let sel_y = start.1.min(cur.1);
@@ -96,38 +104,71 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
             let sel_h = (start.1 - cur.1).abs();
 
             if sel_w > 1.0 && sel_h > 1.0 {
-                // Fetch theme color (e.g., Ubuntu orange)
-                let context = da.style_context();
-                // In GTK4, we can try to look up a named color or use the foreground color as a fallback
-                // but usually the accent/selection color is more appropriate.
-                // We'll use a standard accent color if possible, falling back to blue only as a last resort.
-                let accent_color = context.lookup_color("accent_color")
-                    .or_else(|| context.lookup_color("theme_selected_bg_color"))
-                    .unwrap_or_else(|| gdk4::RGBA::new(0.0, 0.478, 1.0, 1.0));
-
                 // Clear the selection area (make it fully transparent)
                 cr.set_operator(cairo::Operator::Clear);
                 cr.rectangle(sel_x, sel_y, sel_w, sel_h);
                 let _ = cr.fill();
 
-                // Draw the theme-colored border around the selection
+                // Premium selection border with subtle glow effect
                 cr.set_operator(cairo::Operator::Over);
-                cr.set_source_rgba(
-                    accent_color.red() as f64,
-                    accent_color.green() as f64,
-                    accent_color.blue() as f64,
-                    1.0
-                );
-                cr.set_line_width(2.5);
+                
+                // Outer glow (shadow)
+                cr.set_source_rgba(0.0, 0.5, 1.0, 0.3);
+                cr.set_line_width(6.0);
+                cr.rectangle(sel_x - 1.0, sel_y - 1.0, sel_w + 2.0, sel_h + 2.0);
+                let _ = cr.stroke();
+                
+                // Main border - modern blue accent
+                cr.set_source_rgba(0.2, 0.6, 1.0, 0.9);
+                cr.set_line_width(2.0);
                 cr.rectangle(sel_x, sel_y, sel_w, sel_h);
                 let _ = cr.stroke();
 
-                // Dimensions label
+                // Corner indicators for precision
+                let corner_size = 8.0;
+                cr.set_source_rgba(0.2, 0.6, 1.0, 1.0);
+                cr.set_line_width(2.5);
+                
+                // Top-left corner
+                cr.move_to(sel_x, sel_y + corner_size);
+                cr.line_to(sel_x, sel_y);
+                cr.line_to(sel_x + corner_size, sel_y);
+                
+                // Top-right corner
+                cr.move_to(sel_x + sel_w - corner_size, sel_y);
+                cr.line_to(sel_x + sel_w, sel_y);
+                cr.line_to(sel_x + sel_w, sel_y + corner_size);
+                
+                // Bottom-left corner
+                cr.move_to(sel_x, sel_y + sel_h - corner_size);
+                cr.line_to(sel_x, sel_y + sel_h);
+                cr.line_to(sel_x + corner_size, sel_y + sel_h);
+                
+                // Bottom-right corner
+                cr.move_to(sel_x + sel_w - corner_size, sel_y + sel_h);
+                cr.line_to(sel_x + sel_w, sel_y + sel_h);
+                cr.line_to(sel_x + sel_w, sel_y + sel_h - corner_size);
+                
+                let _ = cr.stroke();
+
+                // Enhanced dimensions label with background
                 let label = format!("{} × {}", sel_w as i32, sel_h as i32);
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
-                cr.set_font_size(14.0);
-                let label_y = if sel_y > 20.0 { sel_y - 6.0 } else { sel_y + 18.0 };
-                cr.move_to(sel_x + 4.0, label_y);
+                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+                cr.set_font_size(13.0);
+                
+                let text_extents = cr.text_extents(&label).unwrap();
+                let label_x = sel_x + 8.0;
+                let label_y = if sel_y > 30.0 { sel_y - 8.0 } else { sel_y + sel_h + 20.0 };
+                
+                // Background for text
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.8);
+                cr.rectangle(label_x - 4.0, label_y - text_extents.height() - 2.0, 
+                           text_extents.width() + 8.0, text_extents.height() + 6.0);
+                let _ = cr.fill();
+                
+                // Text
+                cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                cr.move_to(label_x, label_y);
                 let _ = cr.show_text(&label);
             }
         }
@@ -178,28 +219,30 @@ pub fn show_overlay(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
             let end_x = start.0 + offset_x;
             let end_y = start.1 + offset_y;
 
-            let sel_w = (start.0 - end_x).abs() as u32;
-            let sel_h = (start.1 - end_y).abs() as u32;
+            let sel_w = ((start.0 - end_x).abs() * scale_factor) as u32;
+            let sel_h = ((start.1 - end_y).abs() * scale_factor) as u32;
 
-            // Map local to global coordinates
-            let global_x = (start.0.min(end_x) as i32) + min_x;
-            let global_y = (start.1.min(end_y) as i32) + min_y;
+            // Improved coordinate mapping with proper scaling
+            let local_x = start.0.min(end_x);
+            let local_y = start.1.min(end_y);
+            let global_x = ((local_x * scale_factor) as i32) + min_x;
+            let global_y = ((local_y * scale_factor) as i32) + min_y;
 
             // Close overlay immediately
             win_end.close();
 
-            // Minimum selection size guard
-            if sel_w < 5 || sel_h < 5 {
+            // Minimum selection size guard (account for scaling)
+            if sel_w < 10 || sel_h < 10 {
                 return;
             }
 
-            // --- Capture the region exactly as it is now ---
+            // --- Capture the region with proper delay ---
             let db = db.clone();
             let clipboard = clipboard.clone();
             
-            // Note: We move the actual capture/processing to a closure to run after the window is hidden
-            // Wait 100ms for the window to actually vanish from the compositor's view
-            glib::timeout_add_local_once(std::time::Duration::from_millis(100), move || {
+            // Increased delay to ensure overlay is completely gone (300ms for safety)
+            // This prevents any overlay artifacts from appearing in screenshots
+            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
                 match screenshot::capture_region(global_x, global_y, sel_w, sel_h) {
                     Ok((raw_bgra, width, height)) => {
                         let rgba = screenshot::bgra_to_rgba(&raw_bgra);

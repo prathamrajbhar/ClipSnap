@@ -6,10 +6,34 @@ use x11rb::protocol::xproto::{self, ConnectionExt as _};
 use x11rb::rust_connection::RustConnection;
 
 /// Capture a specific region of the screen via X11 and return (BGRA data, width, height).
+/// Enhanced with better error handling and coordinate validation.
 pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u32)> {
+    // Validate input parameters
+    if w == 0 || h == 0 {
+        return Err(anyhow::anyhow!("Invalid capture dimensions: {}x{}", w, h));
+    }
+    
     let (conn, screen_num) =
         RustConnection::connect(None).context("Failed to connect to X11 display")?;
     let screen = &conn.setup().roots[screen_num];
+
+    // Validate coordinates are within screen bounds
+    let screen_width = screen.width_in_pixels as i32;
+    let screen_height = screen.height_in_pixels as i32;
+    
+    if x < 0 || y < 0 || x >= screen_width || y >= screen_height {
+        return Err(anyhow::anyhow!(
+            "Capture coordinates ({}, {}) are outside screen bounds ({}x{})", 
+            x, y, screen_width, screen_height
+        ));
+    }
+
+    // Clamp dimensions to screen bounds to prevent X11 errors
+    let actual_w = std::cmp::min(w, (screen_width - x) as u32);
+    let actual_h = std::cmp::min(h, (screen_height - y) as u32);
+
+    // Use a small delay to ensure any compositor effects are settled
+    std::thread::sleep(std::time::Duration::from_millis(50));
 
     let reply = conn
         .get_image(
@@ -17,8 +41,8 @@ pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u
             screen.root,
             x as i16,
             y as i16,
-            w as u16,
-            h as u16,
+            actual_w as u16,
+            actual_h as u16,
             u32::MAX,
         )
         .context("get_image request failed")?
@@ -26,12 +50,19 @@ pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u
         .context("get_image reply failed")?;
 
     let mut data = reply.data;
+    
+    // Validate data size matches expected
+    let expected_size = (actual_w * actual_h * 4) as usize;
+    if data.len() != expected_size {
+        log::warn!("Data size mismatch: got {}, expected {}", data.len(), expected_size);
+    }
+    
     // X11 on little-endian returns BGRX (32-bit pixels). Set alpha to 255 → BGRA.
     for chunk in data.chunks_exact_mut(4) {
         chunk[3] = 255;
     }
 
-    Ok((data, w, h))
+    Ok((data, actual_w, actual_h))
 }
 
 /// Convert BGRA pixel data to RGBA.
@@ -59,8 +90,11 @@ pub fn encode_png(rgba_pixels: &[u8], width: u32, height: u32) -> Result<Vec<u8>
 }
 
 /// Create a thumbnail from PNG bytes. Returns PNG thumbnail bytes.
+/// Enhanced with better quality settings and error handling.
 pub fn create_thumbnail(png_bytes: &[u8], max_size: u32) -> Result<Vec<u8>> {
     let img = image::load_from_memory(png_bytes).context("Failed to decode PNG for thumbnail")?;
+    
+    // Use high-quality Lanczos3 filter for better thumbnails
     let thumbnail = img.resize(
         max_size,
         max_size,
@@ -73,6 +107,15 @@ pub fn create_thumbnail(png_bytes: &[u8], max_size: u32) -> Result<Vec<u8>> {
         .context("Failed to encode thumbnail PNG")?;
 
     Ok(thumb_bytes)
+}
+
+/// Get screen information for better coordinate mapping
+pub fn get_screen_info() -> Result<(i32, i32, u32, u32)> {
+    let (conn, screen_num) =
+        RustConnection::connect(None).context("Failed to connect to X11 display")?;
+    let screen = &conn.setup().roots[screen_num];
+    
+    Ok((0, 0, screen.width_in_pixels as u32, screen.height_in_pixels as u32))
 }
 
 #[cfg(test)]

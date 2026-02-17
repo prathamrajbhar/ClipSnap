@@ -1,0 +1,61 @@
+#!/bin/bash
+# ClipSnap post-installation script
+
+set -e
+
+case "$1" in
+    configure)
+        echo "Setting up ClipSnap..."
+
+        # Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q /usr/share/applications || true
+        fi
+
+        # Update icon cache if available
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+        fi
+
+        # Create system-wide autostart directory if it doesn't exist
+        mkdir -p /etc/xdg/autostart
+
+        # Install system-wide autostart file
+        cat > /etc/xdg/autostart/clipsnap.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=ClipSnap
+Comment=Smart Area Screenshot & Clipboard History Manager
+Exec=/usr/bin/clipsnap
+Icon=accessories-clipboard
+Categories=Utility;
+StartupNotify=false
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+X-MATE-Autostart-enabled=true
+Hidden=false
+NoDisplay=false
+EOF
+
+        echo "ClipSnap installed successfully!"
+        echo "The application will start automatically on next login."
+        echo "To start now, run: clipsnap &"
+        echo ""
+        echo "Default shortcuts:"
+        echo "  📸 Screenshot: Ctrl+Alt+S"
+        echo "  📜 History:    Alt+H"
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

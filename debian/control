@@ -1,0 +1,29 @@
+Source: clipsnap
+Section: utils
+Priority: optional
+Maintainer: ClipSnap Team <team@clipsnap.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.70), pkg-config, libgtk-4-dev, libgdk-pixbuf-2.0-dev, libcairo2-dev, libx11-dev, libxrandr-dev, libsqlite3-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/yourusername/clipsnap
+Vcs-Git: https://github.com/yourusername/clipsnap.git
+Vcs-Browser: https://github.com/yourusername/clipsnap
+Rules-Requires-Root: no
+
+Package: clipsnap
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libgtk-4-1, libgdk-pixbuf-2.0-0, libcairo2, libx11-6, libxrandr2, libsqlite3-0
+Recommends: notification-daemon | dunst | notify-osd
+Suggests: xdg-utils
+Description: Smart area screenshot and clipboard history manager
+ ClipSnap is an advanced screenshot and clipboard management tool for Linux
+ desktop environments. It provides:
+ .
+  * Precision area screenshot capture with modern UI
+  * Comprehensive clipboard history management
+  * Global keyboard shortcuts for quick access
+  * Automatic startup and system integration
+  * SQLite-based history storage with thumbnails
+  * Cross-desktop environment compatibility
+ .
+ ClipSnap integrates seamlessly with GNOME, KDE, XFCE, and other desktop
+ environments, providing a professional screenshot and clipboard experience.
