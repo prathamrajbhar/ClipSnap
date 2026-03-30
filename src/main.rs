@@ -148,9 +148,39 @@ fn main() {
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state == HotKeyState::Pressed {
                     if event.id == screenshot_id {
-                        // --- Freeze-and-Crop: Capture first! ---
-                        log::info!("Hotkey: Freezing screen...");
-                        match screenshot::capture_entire_screen() {
+                        // --- Multi-Monitor: Calculate total virtual desktop bounds ---
+                        let display = gdk4::Display::default().expect("Failed to get default display");
+                        let monitors = display.monitors();
+                        
+                        let mut min_x = i32::MAX;
+                        let mut min_y = i32::MAX;
+                        let mut max_x = i32::MIN;
+                        let mut max_y = i32::MIN;
+
+                        for i in 0..monitors.n_items() {
+                            if let Some(monitor) = monitors.item(i).and_then(|obj| obj.downcast::<gdk4::Monitor>().ok()) {
+                                let geometry = monitor.geometry();
+                                let scale = monitor.scale_factor();
+                                
+                                // Geometry is in logical pixels. Capture needs device pixels.
+                                let x = geometry.x() * scale;
+                                let y = geometry.y() * scale;
+                                let w = geometry.width() * scale;
+                                let h = geometry.height() * scale;
+
+                                min_x = min_x.min(x);
+                                min_y = min_y.min(y);
+                                max_x = max_x.max(x + w);
+                                max_y = max_y.max(y + h);
+                            }
+                        }
+
+                        let total_w = (max_x - min_x) as u32;
+                        let total_h = (max_y - min_y) as u32;
+
+                        log::info!("Hotkey: Freezing virtual desktop ({}x{} at {},{})...", total_w, total_h, min_x, min_y);
+                        
+                        match screenshot::capture_entire_screen(min_x, min_y, total_w, total_h) {
                             Ok(frozen_image) => {
                                 if let Some(app) = app_weak.upgrade() {
                                     ui::overlay::show_overlay(&app, wt_hotkey.clone(), frozen_image);
