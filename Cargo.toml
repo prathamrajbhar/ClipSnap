@@ -42,3 +42,20 @@ codegen-units = 1     # Better optimization, slower compile
 strip = true          # Strip symbols
 panic = "abort"       # Smaller panic handler
 overflow-checks = false  # Disable overflow checks in release
+
+[package.metadata.deb]
+maintainer = "ClipSnap Team <support@clipsnap.io>"
+copyright = "2024, ClipSnap Team"
+license-file = ["LICENSE", "4"]
+depends = "libgtk-4-1, libsqlite3-0, tesseract-ocr, tesseract-ocr-eng, libtesseract5, libcairo2, libx11-6, libxrandr2, libxfixes3"
+extended-description = """
+ClipSnap is a smart area screenshot & clipboard history manager for Linux. 
+It supports OCR text extraction and QR code decoding.
+"""
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/clipsnap", "usr/bin/clipsnap", "755"],
+    ["resources/clipsnap.desktop", "usr/share/applications/clipsnap.desktop", "644"],
+    ["resources/clipsnap-autostart.desktop", "etc/xdg/autostart/clipsnap-autostart.desktop", "644"],
+]
