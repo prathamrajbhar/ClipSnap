@@ -1,5 +1,5 @@
 use crate::screenshot::{self, CapturedImage};
-use crate::WorkerTask;
+use crate::{WorkerTask, CaptureMode};
 use cairo;
 use gdk4;
 use gtk4::prelude::*;
@@ -14,6 +14,7 @@ struct OverlayState {
     frozen_image: CapturedImage,
     windows: Vec<gtk4::Window>,
     drawing_areas: Vec<gtk4::DrawingArea>,
+    mode: CaptureMode,
 }
 
 impl OverlayState {
@@ -31,7 +32,7 @@ impl OverlayState {
 }
 
 /// Show synchronized overlays on all connected monitors.
-pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, frozen: CapturedImage) {
+pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, frozen: CapturedImage, mode: CaptureMode) {
     let display = gdk4::Display::default().expect("No display found");
     let monitors = display.monitors();
     
@@ -53,6 +54,7 @@ pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, froz
         frozen_image: frozen.clone(),
         windows: Vec::new(),
         drawing_areas: Vec::new(),
+        mode,
     }));
 
     // Create a shared surface from the frozen BGRA data (device pixels)
@@ -154,23 +156,39 @@ pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, froz
                     let _ = cr.fill();
                     cr.restore().expect("Restore highlight failed");
 
-                    // Premium border (logical pixels)
+                    // Simple solid border
                     cr.set_operator(cairo::Operator::Over);
-                    cr.set_source_rgba(0.0, 0.6, 1.0, 0.9);
+                    cr.set_source_rgba(0.0, 0.6, 1.0, 1.0);
                     cr.set_line_width(2.0);
                     cr.rectangle(l_x, l_y, g_w, g_h);
                     let _ = cr.stroke();
                     
-                    // Show dimensions (using the window's scale factor)
-                    let label = format!("{} × {}", (g_w * scale) as i32, (g_h * scale) as i32);
-                    cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                    // --- Dimension Label (Simple Style) ---
+                    let label = format!(" {} × {} ", (g_w * scale) as i32, (g_h * scale) as i32);
                     cr.set_font_size(14.0);
-                    // Position label relative to LOCAL coordinates
-                    cr.move_to(l_x + 5.0, if l_y > 20.0 { l_y - 5.0 } else { l_y + g_h + 20.0 });
+                    let extents = cr.text_extents(&label).expect("Text extents failed");
+                    
+                    let pad_x = 6.0;
+                    let pad_y = 3.0;
+                    let rect_w = extents.width() + (pad_x * 2.0);
+                    let rect_h = extents.height() + (pad_y * 2.0);
+                    
+                    let label_x = l_x + 5.0;
+                    let label_y = if l_y > 25.0 { l_y - rect_h - 2.0 } else { l_y + g_h + 2.0 };
+                    
+                    // Simple Semi-transparent Background
+                    cr.set_source_rgba(0.0, 0.0, 0.0, 0.6);
+                    cr.rectangle(label_x, label_y, rect_w, rect_h);
+                    let _ = cr.fill();
+                    
+                    // Text
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                    cr.move_to(label_x + pad_x, label_y + pad_y + extents.height());
                     let _ = cr.show_text(&label);
                 }
             }
         });
+
 
         // Gestures for synchronization
         let drag = gtk4::GestureDrag::new();
@@ -224,7 +242,12 @@ pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, froz
                         h_dev,
                     ) {
                         Ok((rgba, w, h)) => {
-                            let _ = worker_tx_end.send(WorkerTask::ProcessScreenshot { rgba_pixels: rgba, width: w, height: h });
+                            let _ = worker_tx_end.send(WorkerTask::ProcessScreenshot { 
+                                rgba_pixels: rgba, 
+                                width: w, 
+                                height: h,
+                                mode: st.mode,
+                            });
                         }
                         Err(e) => log::error!("Crop failed: {}", e),
                     }
@@ -247,7 +270,15 @@ pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, froz
         drawing_area.add_controller(drag);
         window.add_controller(key_ctl);
         window.set_child(Some(&drawing_area));
+        
+        let state_close = state.clone();
+        window.connect_close_request(move |_| {
+            state_close.borrow().close_all();
+            glib::Propagation::Proceed
+        });
+
         window.present();
+        window.grab_focus();
 
         // Track windows/drawing areas for sync
         {
@@ -257,3 +288,4 @@ pub fn show_overlay(app: &gtk4::Application, worker_tx: Sender<WorkerTask>, froz
         }
     }
 }
+

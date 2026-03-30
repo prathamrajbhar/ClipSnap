@@ -15,12 +15,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::sync::mpsc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureMode {
+    StandardImage,
+    ExtractText,
+    DecodeQR,
+}
+
 /// Tasks handled by the background worker thread.
 pub enum WorkerTask {
     ProcessScreenshot {
         rgba_pixels: Vec<u8>,
         width: u32,
         height: u32,
+        mode: CaptureMode,
     },
     ProcessClipboardImage {
         rgba_pixels: Vec<u8>,
@@ -72,13 +80,13 @@ fn main() {
         .spawn(move || {
             while let Ok(task) = worker_rx.recv() {
                 match task {
-                    WorkerTask::ProcessScreenshot { rgba_pixels, width, height } => {
-                        log::info!("Worker: Processing screenshot ({}x{})", width, height);
-                        process_image(&rgba_pixels, width, height, true, &db_worker, &clipboard_worker, &lih_worker);
+                    WorkerTask::ProcessScreenshot { rgba_pixels, width, height, mode } => {
+                        log::info!("Worker: Processing screenshot ({}x{}) mode={:?}", width, height, mode);
+                        process_image(&rgba_pixels, width, height, mode, &db_worker, &clipboard_worker, &lih_worker);
                     }
                     WorkerTask::ProcessClipboardImage { rgba_pixels, width, height } => {
                         log::info!("Worker: Processing clipboard image ({}x{})", width, height);
-                        process_image(&rgba_pixels, width, height, false, &db_worker, &clipboard_worker, &lih_worker);
+                        process_image(&rgba_pixels, width, height, CaptureMode::StandardImage, &db_worker, &clipboard_worker, &lih_worker);
                     }
                 }
             }
@@ -128,12 +136,18 @@ fn main() {
 
         let screenshot_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.screenshot).expect("Invalid screenshot shortcut");
         let history_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.history).expect("Invalid history shortcut");
+        let extract_text_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.extract_text).expect("Invalid extract_text shortcut");
+        let decode_qr_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.decode_qr).expect("Invalid decode_qr shortcut");
 
         let screenshot_id = screenshot_hk.id();
         let history_id = history_hk.id();
+        let extract_text_id = extract_text_hk.id();
+        let decode_qr_id = decode_qr_hk.id();
 
         let _ = hotkey_manager.register(screenshot_hk);
         let _ = hotkey_manager.register(history_hk);
+        let _ = hotkey_manager.register(extract_text_hk);
+        let _ = hotkey_manager.register(decode_qr_hk);
 
         let app_weak = app.downgrade();
         let db_hotkey = db_activate.clone();
@@ -147,7 +161,25 @@ fn main() {
 
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state == HotKeyState::Pressed {
-                    if event.id == screenshot_id {
+                    // --- Added check for modal dialogs to prevent hangs ---
+                    if let Some(app) = app_weak.upgrade() {
+                        let windows = app.windows();
+                        let is_any_modal = windows.iter().any(|w| w.is_modal());
+                        if is_any_modal {
+                            log::warn!("Hotkey ignored: modal dialog is active.");
+                            continue;
+                        }
+                    }
+
+                    if event.id == screenshot_id || event.id == extract_text_id || event.id == decode_qr_id {
+                        let mode = if event.id == screenshot_id { 
+                            CaptureMode::StandardImage 
+                        } else if event.id == extract_text_id {
+                            CaptureMode::ExtractText
+                        } else {
+                            CaptureMode::DecodeQR
+                        };
+                        
                         // --- Multi-Monitor: Calculate total virtual desktop bounds ---
                         let display = gdk4::Display::default().expect("Failed to get default display");
                         let monitors = display.monitors();
@@ -178,12 +210,12 @@ fn main() {
                         let total_w = (max_x - min_x) as u32;
                         let total_h = (max_y - min_y) as u32;
 
-                        log::info!("Hotkey: Freezing virtual desktop ({}x{} at {},{})...", total_w, total_h, min_x, min_y);
+                        log::info!("Hotkey: Freezing virtual desktop for {:?} ({}x{} at {},{})...", mode, total_w, total_h, min_x, min_y);
                         
                         match screenshot::capture_entire_screen(min_x, min_y, total_w, total_h) {
                             Ok(frozen_image) => {
                                 if let Some(app) = app_weak.upgrade() {
-                                    ui::overlay::show_overlay(&app, wt_hotkey.clone(), frozen_image);
+                                    ui::overlay::show_overlay(&app, wt_hotkey.clone(), frozen_image, mode);
                                 }
                             }
                             Err(e) => {
@@ -212,11 +244,123 @@ fn process_image(
     rgba_pixels: &[u8],
     width: u32,
     height: u32,
-    is_screenshot: bool,
+    mode: CaptureMode,
     db_worker: &Arc<Mutex<Database>>,
     clipboard_worker: &Arc<Mutex<arboard::Clipboard>>,
     last_image_hash: &Arc<Mutex<Option<u64>>>,
 ) {
+    if mode == CaptureMode::ExtractText {
+        log::info!("Worker: Performing OCR...");
+        match screenshot::encode_png(rgba_pixels, width, height) {
+            Ok(png_bytes) => {
+                let dynamic_image = match image::load_from_memory(&png_bytes) {
+                    Ok(img) => img,
+                    Err(e) => {
+                        log::error!("Worker: Failed to load image for OCR: {}", e);
+                        return;
+                    }
+                };
+
+                let img = match rusty_tesseract::Image::from_dynamic_image(&dynamic_image) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        log::error!("Worker: Failed to create tesseract image: {}", e);
+                        return;
+                    }
+                };
+                
+                let mut args = rusty_tesseract::Args::default();
+                args.psm = Some(6); // Assume a single uniform block of text. Often better for snippets.
+                
+                match rusty_tesseract::image_to_string(&img, &args) {
+                    Ok(text) => {
+                        let trimmed = text.trim();
+                        if trimmed.is_empty() {
+                            log::warn!("Worker: OCR completed but no text was detected.");
+                            notifications::notify_screenshot_error("No text detected in selected area");
+                            return;
+                        }
+
+                        // Save to clipboard
+                        if let Ok(mut cb) = clipboard_worker.lock() {
+                            let _ = clipboard::set_clipboard_text(&mut cb, trimmed);
+                        }
+
+                        // Save to DB
+                        if let Ok(db) = db_worker.lock() {
+                            let _ = db.insert_text(trimmed);
+                        }
+
+                        notifications::notify_text_extraction(trimmed);
+                        log::info!("Worker: OCR Success: {} characters extracted", trimmed.len());
+                    }
+                    Err(e) => {
+                        log::error!("Worker: OCR failed: {}", e);
+                        notifications::notify_screenshot_error(&format!("OCR Error: {}", e));
+                    }
+                }
+            }
+            Err(e) => log::error!("Worker: Encoding for OCR failed: {}", e),
+        }
+        return;
+    }
+
+    if mode == CaptureMode::DecodeQR {
+        log::info!("Worker: Decoding QR Code...");
+        match screenshot::encode_png(rgba_pixels, width, height) {
+            Ok(png_bytes) => {
+                let dynamic_image = match image::load_from_memory(&png_bytes) {
+                    Ok(img) => img,
+                    Err(e) => {
+                        log::error!("Worker: Failed to load image for QR: {}", e);
+                        return;
+                    }
+                };
+
+                // rqrr needs a grayscale image
+                let luma_img = dynamic_image.to_luma8();
+                let mut img = rqrr::PreparedImage::prepare(luma_img);
+                let grids = img.detect_grids();
+
+                if grids.is_empty() {
+                    log::warn!("Worker: No QR code detected.");
+                    notifications::notify_screenshot_error("No QR Code detected in selection.");
+                    return;
+                }
+
+                // Decode the first grid found
+                let (_meta, content) = match grids[0].decode() {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log::error!("Worker: QR decode failed: {}", e);
+                        notifications::notify_screenshot_error("Failed to decode QR Code content.");
+                        return;
+                    }
+                };
+
+                if content.is_empty() {
+                    notifications::notify_screenshot_error("Failed to decode QR Code content.");
+                    return;
+                }
+
+                // Save to clipboard
+                if let Ok(mut cb) = clipboard_worker.lock() {
+                    let _ = clipboard::set_clipboard_text(&mut cb, &content);
+                }
+
+                // Save to DB
+                if let Ok(db) = db_worker.lock() {
+                    let _ = db.insert_text(&content);
+                }
+
+                notifications::notify_text_extraction(&content); // Reuse same notification for QR result
+                log::info!("Worker: QR Decode Success: {} chars", content.len());
+            }
+            Err(e) => log::error!("Worker: Encoding for QR failed: {}", e),
+        }
+        return;
+    }
+
     match screenshot::encode_png(rgba_pixels, width, height) {
         Ok(png_bytes) => {
             let thumb = screenshot::create_thumbnail(&png_bytes, 150).unwrap_or_default();
@@ -229,7 +373,7 @@ fn process_image(
             }
 
             // If it was a screenshot, also copy to clipboard and notify
-            if is_screenshot {
+            if mode == CaptureMode::StandardImage {
                 // Update the shared hash BEFORE setting to clipboard to prevent monitor loopback
                 let hash = clipboard::calculate_hash(rgba_pixels);
                 if let Ok(mut lih) = last_image_hash.lock() {
@@ -239,8 +383,14 @@ fn process_image(
                 if let Ok(mut cb) = clipboard_worker.lock() {
                     let _ = clipboard::set_clipboard_image(&mut cb, rgba_pixels, width as usize, height as usize);
                 }
-                let tmp_path = std::env::temp_dir().join("clipsnap_last.png");
-                let _ = std::fs::write(&tmp_path, &png_bytes);
+                // Save a temporary copy for the notification preview
+                let cache_dir = dirs::cache_dir().unwrap_or_else(|| std::env::temp_dir()).join("clipsnap");
+                let _ = std::fs::create_dir_all(&cache_dir);
+                let tmp_path = cache_dir.join("last_screenshot.png");
+                
+                if let Err(e) = std::fs::write(&tmp_path, &png_bytes) {
+                    log::error!("Worker: Failed to write preview file: {}", e);
+                }
                 notifications::notify_screenshot_success(&tmp_path);
             }
         }

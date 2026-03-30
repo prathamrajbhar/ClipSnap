@@ -4,9 +4,18 @@ use arboard::Clipboard;
 use enigo::{Enigo, Key};
 use gdk4;
 use gdk_pixbuf;
+use gio::{self, prelude::*};
 use glib;
 use gtk4::prelude::*;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::sync::{Arc, Mutex};
+
+lazy_static! {
+    static ref URL_REGEX: Regex = Regex::new(r"https?://[^\s/$.?#].[^\s]*").unwrap();
+    static ref HEX_COLOR_REGEX: Regex = Regex::new(r"^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$").unwrap();
+    static ref EMAIL_REGEX: Regex = Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
+}
 
 /// Show the clipboard history dialog.
 pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard: Arc<Mutex<Clipboard>>) {
@@ -29,9 +38,17 @@ pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
     // Header with Title and Search
     let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
     
-    let title_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    let title_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+    
+    // Add Logo
+    if let Some(logo_pb) = crate::ui::load_logo_pixbuf(32) {
+        let logo_img = gtk4::Image::from_pixbuf(Some(&logo_pb));
+        logo_img.add_css_class("app-logo");
+        title_box.append(&logo_img);
+    }
+
     let title_label = gtk4::Label::builder()
-        .label("ClipSnap History")
+        .label("ClipSnap")
         .halign(gtk4::Align::Start)
         .build();
     title_label.add_css_class("title-1");
@@ -50,6 +67,13 @@ pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         .css_classes(["flat"])
         .build();
     header_box.append(&clear_button);
+
+    let settings_button = gtk4::Button::builder()
+        .icon_name("preferences-system-symbolic")
+        .tooltip_text("Open Settings")
+        .css_classes(["flat"])
+        .build();
+    header_box.append(&settings_button);
     
     vbox.append(&header_box);
 
@@ -208,6 +232,12 @@ pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         });
     });
 
+    // --- Settings Logic ---
+    let app_settings = app.clone();
+    settings_button.connect_clicked(move |_| {
+        crate::ui::settings_dialog::show_settings(app_settings.clone());
+    });
+
     // CSS for divider and animations
     let provider_extra = gtk4::CssProvider::new();
     provider_extra.load_from_data("
@@ -238,19 +268,14 @@ pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         .dim-label { opacity: 0.6; font-size: 13px; }
         
         card {
-            background-color: @theme_bg_color;
+            background-color: alpha(@theme_fg_color, 0.03);
             border-radius: 12px;
             padding: 16px;
             border: 1px solid alpha(@theme_fg_color, 0.1);
-            transition: all 200ms ease;
-        }
-        card.text-card {
-            min-width: 580px;
         }
         card:hover {
-            background-color: alpha(@theme_fg_color, 0.05);
+            background-color: alpha(@theme_fg_color, 0.06);
             border-color: alpha(@theme_fg_color, 0.2);
-            box-shadow: 0 4px 12px alpha(black, 0.1);
         }
 
         notebook header {
@@ -266,6 +291,7 @@ pub fn show_history(app: &gtk4::Application, db: Arc<Mutex<Database>>, clipboard
         notebook tab:checked {
             border-bottom: 2px solid @accent_color;
         }
+        .app-logo { border_radius: 6px; }
     ");
     if let Some(display) = gdk4::Display::default() {
         gtk4::style_context_add_provider_for_display(
@@ -297,9 +323,11 @@ fn build_entry_widget(
     window: &gtk4::Window,
     clipboard: &Arc<Mutex<Clipboard>>,
 ) -> gtk4::Widget {
-    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     card.add_css_class("card");
     card.set_cursor(Some(&gdk4::Cursor::from_name("pointer", None).unwrap()));
+
+    let mut smart_actions = Vec::new();
 
     match entry.content_type {
         ContentType::Image => {
@@ -319,6 +347,62 @@ fn build_entry_widget(
             card.add_css_class("text-card");
             card.set_hexpand(true);
             let text = entry.text_content.as_deref().unwrap_or("");
+            
+            // --- Smart Recognition ---
+            let text_trimmed = text.trim();
+            
+            // 1. URL Detection
+            if let Some(mat) = URL_REGEX.find(text_trimmed) {
+                let url = mat.as_str().to_string();
+                let btn = gtk4::Button::builder()
+                    .icon_name("external-link-symbolic")
+                    .tooltip_text(&format!("Open URL: {}", url))
+                    .css_classes(["flat", "circular"])
+                    .build();
+                btn.connect_clicked(move |_| {
+                    let _ = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>);
+                });
+                smart_actions.push(btn.upcast::<gtk4::Widget>());
+            }
+
+            // 2. Hex Color Detection
+            if let Some(mat) = HEX_COLOR_REGEX.find(text_trimmed) {
+                let color_hex = mat.as_str().to_string();
+                let color_box = gtk4::Box::builder()
+                    .width_request(24)
+                    .height_request(24)
+                    .valign(gtk4::Align::Center)
+                    .css_classes(["color-preview"])
+                    .build();
+                
+                let provider = gtk4::CssProvider::new();
+                provider.load_from_data(&format!(".color-preview {{ background-color: {}; border-radius: 4px; border: 1px solid alpha(@theme_fg_color, 0.2); }}", color_hex));
+                color_box.style_context().add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+                
+                let color_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                color_row.append(&color_box);
+                let color_label = gtk4::Label::new(Some(&color_hex));
+                color_label.add_css_class("dim-label");
+                color_row.append(&color_label);
+                
+                card.append(&color_row);
+            }
+
+            // 3. Email Detection
+            if let Some(mat) = EMAIL_REGEX.find(text_trimmed) {
+                let email = mat.as_str().to_string();
+                let mail_url = format!("mailto:{}", email);
+                let btn = gtk4::Button::builder()
+                    .icon_name("mail-send-symbolic")
+                    .tooltip_text(&format!("Send email to {}", email))
+                    .css_classes(["flat", "circular"])
+                    .build();
+                btn.connect_clicked(move |_| {
+                    let _ = gio::AppInfo::launch_default_for_uri(&mail_url, None::<&gio::AppLaunchContext>);
+                });
+                smart_actions.push(btn.upcast::<gtk4::Widget>());
+            }
+
             let preview = if text.len() > 150 {
                 format!("{}…", &text[..text.char_indices().nth(150).map(|(i, _)| i).unwrap_or(text.len())])
             } else {
@@ -336,7 +420,7 @@ fn build_entry_widget(
         }
     }
 
-    // Card Footer (Type + Time)
+    // Card Footer (Type + Time + Smart Actions)
     let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     footer.add_css_class("dim-label");
 
@@ -347,6 +431,11 @@ fn build_entry_widget(
     let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     footer.append(&spacer);
+
+    // Append Smart Actions to footer
+    for action in smart_actions {
+        footer.append(&action);
+    }
 
     if entry.content_type == ContentType::Image {
         let size_str = format_size(entry.file_size);

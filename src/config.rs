@@ -18,6 +18,18 @@ pub struct Config {
 pub struct Shortcuts {
     pub screenshot: String,
     pub history: String,
+    #[serde(default = "default_extract_text")]
+    pub extract_text: String,
+    #[serde(default = "default_decode_qr")]
+    pub decode_qr: String,
+}
+
+fn default_extract_text() -> String {
+    "Ctrl+Alt+G".to_string()
+}
+
+fn default_decode_qr() -> String {
+    "Ctrl+Alt+Q".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -58,6 +70,8 @@ impl Default for Config {
             shortcuts: Shortcuts {
                 screenshot: "Ctrl+Alt+S".to_string(),
                 history: "Alt+H".to_string(),
+                extract_text: "Ctrl+Alt+G".to_string(),
+                decode_qr: "Ctrl+Alt+Q".to_string(),
             },
             capture: CaptureConfig {
                 format: "png".to_string(),

@@ -1,6 +1,8 @@
 [shortcuts]
 screenshot = "Ctrl+Alt+S"
 history = "Alt+H"
+extract_text = "Ctrl+Alt+G"
+decode_qr = "Ctrl+Alt+Q"
 
 [capture]
 format = "png"
