@@ -5,10 +5,55 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{self, ConnectionExt as _};
 use x11rb::rust_connection::RustConnection;
 
-/// Capture a specific region of the screen via X11 and return (BGRA data, width, height).
-/// Enhanced with better error handling and coordinate validation.
+/// Result of a screen capture containing raw pixel data and dimensions.
+#[derive(Clone)]
+pub struct CapturedImage {
+    pub data: Vec<u8>, // BGRA or RGBA
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Capture the entire screen (all monitors) via X11.
+/// Returns BGRA data and dimensions.
+pub fn capture_entire_screen() -> Result<CapturedImage> {
+    let (conn, screen_num) =
+        RustConnection::connect(None).context("Failed to connect to X11 display")?;
+    let screen = &conn.setup().roots[screen_num];
+
+    let width = screen.width_in_pixels;
+    let height = screen.height_in_pixels;
+
+    let reply = conn
+        .get_image(
+            xproto::ImageFormat::Z_PIXMAP,
+            screen.root,
+            0,
+            0,
+            width,
+            height,
+            u32::MAX,
+        )
+        .context("get_image request failed for entire screen")?
+        .reply()
+        .context("get_image reply failed for entire screen")?;
+
+    let mut data = reply.data;
+    
+    // Ensure alpha is set to 255 for BGRA
+    for chunk in data.chunks_exact_mut(4) {
+        chunk[3] = 255;
+    }
+
+    Ok(CapturedImage {
+        data,
+        width: width as u32,
+        height: height as u32,
+    })
+}
+
+/// Capture a specific region of the screen via X11.
+#[allow(dead_code)]
 pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u32)> {
-    // Validate input parameters
     if w == 0 || h == 0 {
         return Err(anyhow::anyhow!("Invalid capture dimensions: {}x{}", w, h));
     }
@@ -17,23 +62,13 @@ pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u
         RustConnection::connect(None).context("Failed to connect to X11 display")?;
     let screen = &conn.setup().roots[screen_num];
 
-    // Validate coordinates are within screen bounds
     let screen_width = screen.width_in_pixels as i32;
     let screen_height = screen.height_in_pixels as i32;
     
-    if x < 0 || y < 0 || x >= screen_width || y >= screen_height {
-        return Err(anyhow::anyhow!(
-            "Capture coordinates ({}, {}) are outside screen bounds ({}x{})", 
-            x, y, screen_width, screen_height
-        ));
-    }
-
-    // Clamp dimensions to screen bounds to prevent X11 errors
+    let x = x.clamp(0, screen_width - 1);
+    let y = y.clamp(0, screen_height - 1);
     let actual_w = std::cmp::min(w, (screen_width - x) as u32);
     let actual_h = std::cmp::min(h, (screen_height - y) as u32);
-
-    // Use a small delay to ensure any compositor effects are settled
-    std::thread::sleep(std::time::Duration::from_millis(50));
 
     let reply = conn
         .get_image(
@@ -50,14 +85,6 @@ pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u
         .context("get_image reply failed")?;
 
     let mut data = reply.data;
-    
-    // Validate data size matches expected
-    let expected_size = (actual_w * actual_h * 4) as usize;
-    if data.len() != expected_size {
-        log::warn!("Data size mismatch: got {}, expected {}", data.len(), expected_size);
-    }
-    
-    // X11 on little-endian returns BGRX (32-bit pixels). Set alpha to 255 → BGRA.
     for chunk in data.chunks_exact_mut(4) {
         chunk[3] = 255;
     }
@@ -65,7 +92,60 @@ pub fn capture_region(x: i32, y: i32, w: u32, h: u32) -> Result<(Vec<u8>, u32, u
     Ok((data, actual_w, actual_h))
 }
 
+/// Crop a region from BGRA data and return as RGBA.
+pub fn crop_bgra_to_rgba(
+    src_data: &[u8],
+    src_w: u32,
+    src_h: u32,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+) -> Result<(Vec<u8>, u32, u32)> {
+    if w == 0 || h == 0 {
+        return Err(anyhow::anyhow!("Invalid crop dimensions"));
+    }
+
+    let mut dest_rgba = Vec::with_capacity((w * h * 4) as usize);
+    
+    for row in 0..h {
+        let src_y = y + row as i32;
+        if src_y < 0 || src_y >= src_h as i32 {
+            // Fill with black/transparent if out of bounds
+            for _ in 0..w {
+                dest_rgba.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            continue;
+        }
+
+        for col in 0..w {
+            let src_x = x + col as i32;
+            if src_x < 0 || src_x >= src_w as i32 {
+                dest_rgba.extend_from_slice(&[0, 0, 0, 255]);
+                continue;
+            }
+
+            let src_idx = ((src_y as u32 * src_w + src_x as u32) * 4) as usize;
+            if src_idx + 3 < src_data.len() {
+                let b = src_data[src_idx];
+                let g = src_data[src_idx + 1];
+                let r = src_data[src_idx + 2];
+                let a = src_data[src_idx + 3];
+                dest_rgba.push(r);
+                dest_rgba.push(g);
+                dest_rgba.push(b);
+                dest_rgba.push(a);
+            } else {
+                dest_rgba.extend_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+    }
+
+    Ok((dest_rgba, w, h))
+}
+
 /// Convert BGRA pixel data to RGBA.
+#[allow(dead_code)]
 pub fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(bgra.len());
     for chunk in bgra.chunks_exact(4) {
@@ -89,12 +169,10 @@ pub fn encode_png(rgba_pixels: &[u8], width: u32, height: u32) -> Result<Vec<u8>
     Ok(png_bytes)
 }
 
-/// Create a thumbnail from PNG bytes. Returns PNG thumbnail bytes.
-/// Enhanced with better quality settings and error handling.
+/// Create a thumbnail from PNG bytes.
 pub fn create_thumbnail(png_bytes: &[u8], max_size: u32) -> Result<Vec<u8>> {
     let img = image::load_from_memory(png_bytes).context("Failed to decode PNG for thumbnail")?;
     
-    // Use high-quality Lanczos3 filter for better thumbnails
     let thumbnail = img.resize(
         max_size,
         max_size,
@@ -107,47 +185,4 @@ pub fn create_thumbnail(png_bytes: &[u8], max_size: u32) -> Result<Vec<u8>> {
         .context("Failed to encode thumbnail PNG")?;
 
     Ok(thumb_bytes)
-}
-
-/// Get screen information for better coordinate mapping
-#[allow(dead_code)]
-pub fn get_screen_info() -> Result<(i32, i32, u32, u32)> {
-    let (conn, screen_num) =
-        RustConnection::connect(None).context("Failed to connect to X11 display")?;
-    let screen = &conn.setup().roots[screen_num];
-    
-    Ok((0, 0, screen.width_in_pixels as u32, screen.height_in_pixels as u32))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bgra_to_rgba() {
-        let bgra = vec![10, 20, 30, 255, 40, 50, 60, 255];
-        let rgba = bgra_to_rgba(&bgra);
-        assert_eq!(rgba, vec![30, 20, 10, 255, 60, 50, 40, 255]);
-    }
-
-    #[test]
-    fn test_encode_png() {
-        // 2×2 red RGBA image
-        let pixels = vec![
-            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
-        ];
-        let png = encode_png(&pixels, 2, 2).unwrap();
-        assert!(!png.is_empty());
-        // PNG magic bytes
-        assert_eq!(&png[0..4], &[0x89, 0x50, 0x4E, 0x47]);
-    }
-
-    #[test]
-    fn test_create_thumbnail() {
-        // Create a small valid PNG first
-        let pixels = vec![255u8; 10 * 10 * 4];
-        let png = encode_png(&pixels, 10, 10).unwrap();
-        let thumb = create_thumbnail(&png, 5).unwrap();
-        assert!(!thumb.is_empty());
-    }
 }

@@ -13,6 +13,21 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use gtk4::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::sync::mpsc;
+
+/// Tasks handled by the background worker thread.
+pub enum WorkerTask {
+    ProcessScreenshot {
+        rgba_pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+    },
+    ProcessClipboardImage {
+        rgba_pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+    },
+}
 
 fn main() {
     // ── Logging ─────────────────────────────────────
@@ -24,11 +39,6 @@ fn main() {
 
     // ── Configuration ───────────────────────────────
     let config = Config::load_or_create_default().expect("Failed to load configuration");
-    log::info!(
-        "Config loaded – screenshot: {}, history: {}",
-        config.shortcuts.screenshot,
-        config.shortcuts.history,
-    );
 
     // ── Database ────────────────────────────────────
     let db_path = config.resolved_db_path();
@@ -49,7 +59,35 @@ fn main() {
     let last_text_hash: Arc<Mutex<Option<u64>>> = Arc::new(Mutex::new(None));
     let last_image_hash: Arc<Mutex<Option<u64>>> = Arc::new(Mutex::new(None));
 
-    // ── Clipboard Monitoring Thread ─────────────
+    // ── Background Worker ───────────────────────────
+    let (worker_tx, worker_rx) = mpsc::channel::<WorkerTask>();
+    let db_worker = db.clone();
+    let clipboard_worker = Arc::new(Mutex::new(
+        arboard::Clipboard::new().expect("Failed to initialise clipboard for worker"),
+    ));
+
+    let lih_worker = last_image_hash.clone();
+    std::thread::Builder::new()
+        .name("background-worker".into())
+        .spawn(move || {
+            while let Ok(task) = worker_rx.recv() {
+                match task {
+                    WorkerTask::ProcessScreenshot { rgba_pixels, width, height } => {
+                        log::info!("Worker: Processing screenshot ({}x{})", width, height);
+                        process_image(&rgba_pixels, width, height, true, &db_worker, &clipboard_worker, &lih_worker);
+                    }
+                    WorkerTask::ProcessClipboardImage { rgba_pixels, width, height } => {
+                        log::info!("Worker: Processing clipboard image ({}x{})", width, height);
+                        process_image(&rgba_pixels, width, height, false, &db_worker, &clipboard_worker, &lih_worker);
+                    }
+                }
+            }
+        })
+        .expect("Failed to spawn worker thread");
+
+
+
+    // ── Clipboard Monitoring Thread (Updated) ───────
     let clipboard = Arc::new(Mutex::new(
         arboard::Clipboard::new().expect("Failed to initialise clipboard"),
     ));
@@ -59,10 +97,11 @@ fn main() {
         let cb_monitor = clipboard.clone();
         let lth = last_text_hash.clone();
         let lih = last_image_hash.clone();
+        let wt_monitor = worker_tx.clone();
         std::thread::Builder::new()
             .name("clipboard-monitor".into())
             .spawn(move || {
-                clipboard::monitor_clipboard(cb_monitor, db_monitor, lth, lih);
+                clipboard::monitor_clipboard(cb_monitor, db_monitor, lth, lih, wt_monitor);
             })
             .expect("Failed to spawn clipboard monitor thread");
     }
@@ -76,61 +115,31 @@ fn main() {
     let db_activate = db.clone();
     let cb_activate = clipboard.clone();
     let config_activate = config.clone();
+    let worker_tx_activate = worker_tx.clone();
 
     app.connect_activate(move |app| {
-        // ── Global Hotkeys ──────────────────────────
         let hotkey_manager = match GlobalHotKeyManager::new() {
             Ok(m) => m,
             Err(e) => {
                 log::error!("Failed to initialise hotkey manager: {}", e);
-                eprintln!("ERROR: Failed to initialise global hotkeys: {}", e);
                 return;
             }
         };
 
-        let screenshot_hk = match hotkeys::parse_hotkey(&config_activate.shortcuts.screenshot) {
-            Ok(hk) => hk,
-            Err(e) => {
-                log::error!("Invalid screenshot shortcut: {}", e);
-                eprintln!("ERROR: Invalid screenshot shortcut – {}", e);
-                return;
-            }
-        };
-        let history_hk = match hotkeys::parse_hotkey(&config_activate.shortcuts.history) {
-            Ok(hk) => hk,
-            Err(e) => {
-                log::error!("Invalid history shortcut: {}", e);
-                eprintln!("ERROR: Invalid history shortcut – {}", e);
-                return;
-            }
-        };
+        let screenshot_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.screenshot).expect("Invalid screenshot shortcut");
+        let history_hk = hotkeys::parse_hotkey(&config_activate.shortcuts.history).expect("Invalid history shortcut");
 
         let screenshot_id = screenshot_hk.id();
         let history_id = history_hk.id();
 
-        if let Err(e) = hotkey_manager.register(screenshot_hk) {
-            log::error!("Failed to register screenshot hotkey: {}", e);
-            eprintln!(
-                "WARNING: Could not register screenshot hotkey ({}). It may conflict with your DE.",
-                config_activate.shortcuts.screenshot
-            );
-        } else {
-            log::info!("Registered screenshot hotkey: {} (ID: {})", config_activate.shortcuts.screenshot, screenshot_id);
-        }
-        if let Err(e) = hotkey_manager.register(history_hk) {
-            log::error!("Failed to register history hotkey: {}", e);
-            eprintln!(
-                "WARNING: Could not register history hotkey ({}). It may conflict with your DE.",
-                config_activate.shortcuts.history
-            );
-        } else {
-            log::info!("Registered history hotkey: {} (ID: {})", config_activate.shortcuts.history, history_id);
-        }
+        let _ = hotkey_manager.register(screenshot_hk);
+        let _ = hotkey_manager.register(history_hk);
 
-        // ── Hotkey Polling (on GTK main loop) ───────
         let app_weak = app.downgrade();
         let db_hotkey = db_activate.clone();
         let cb_hotkey = cb_activate.clone();
+        let wt_hotkey = worker_tx_activate.clone();
+        
         let hold_guard = app.hold();
         glib::timeout_add_local(Duration::from_millis(100), move || {
             let _hold = &hold_guard;
@@ -139,26 +148,72 @@ fn main() {
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state == HotKeyState::Pressed {
                     if event.id == screenshot_id {
-                        log::info!("Screenshot hotkey pressed - launching capture overlay");
-                        if let Some(ref app) = app_weak.upgrade() {
-                            ui::overlay::show_overlay(app, db_hotkey.clone(), cb_hotkey.clone());
+                        // --- Freeze-and-Crop: Capture first! ---
+                        log::info!("Hotkey: Freezing screen...");
+                        match screenshot::capture_entire_screen() {
+                            Ok(frozen_image) => {
+                                if let Some(app) = app_weak.upgrade() {
+                                    ui::overlay::show_overlay(&app, wt_hotkey.clone(), frozen_image);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Capture failed: {}", e);
+                                notifications::notify_screenshot_error(&format!("Capture error: {}", e));
+                            }
                         }
                     } else if event.id == history_id {
-                        log::info!("History hotkey pressed - opening history dialog");
-                        if let Some(ref app) = app_weak.upgrade() {
-                            ui::history_dialog::show_history(app, db_hotkey.clone(), cb_hotkey.clone());
+                        if let Some(app) = app_weak.upgrade() {
+                            ui::history_dialog::show_history(&app, db_hotkey.clone(), cb_hotkey.clone());
                         }
                     }
                 }
             }
-
             glib::ControlFlow::Continue
         });
 
         log::info!("ClipSnap ready");
     });
 
-    // Run the GTK event loop (blocks until quit).
     let exit_code = app.run();
     log::info!("ClipSnap exiting with code {:?}", exit_code);
+}
+
+fn process_image(
+    rgba_pixels: &[u8],
+    width: u32,
+    height: u32,
+    is_screenshot: bool,
+    db_worker: &Arc<Mutex<Database>>,
+    clipboard_worker: &Arc<Mutex<arboard::Clipboard>>,
+    last_image_hash: &Arc<Mutex<Option<u64>>>,
+) {
+    match screenshot::encode_png(rgba_pixels, width, height) {
+        Ok(png_bytes) => {
+            let thumb = screenshot::create_thumbnail(&png_bytes, 150).unwrap_or_default();
+            
+            // Save to DB
+            if let Ok(db) = db_worker.lock() {
+                if let Err(e) = db.insert_image(&png_bytes, &thumb) {
+                    log::error!("Worker: Failed to save to DB: {}", e);
+                }
+            }
+
+            // If it was a screenshot, also copy to clipboard and notify
+            if is_screenshot {
+                // Update the shared hash BEFORE setting to clipboard to prevent monitor loopback
+                let hash = clipboard::calculate_hash(rgba_pixels);
+                if let Ok(mut lih) = last_image_hash.lock() {
+                    *lih = Some(hash);
+                }
+
+                if let Ok(mut cb) = clipboard_worker.lock() {
+                    let _ = clipboard::set_clipboard_image(&mut cb, rgba_pixels, width as usize, height as usize);
+                }
+                let tmp_path = std::env::temp_dir().join("clipsnap_last.png");
+                let _ = std::fs::write(&tmp_path, &png_bytes);
+                notifications::notify_screenshot_success(&tmp_path);
+            }
+        }
+        Err(e) => log::error!("Worker: Encoding failed: {}", e),
+    }
 }

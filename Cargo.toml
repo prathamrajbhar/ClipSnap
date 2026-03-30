@@ -15,7 +15,7 @@ gdk-pixbuf = { version = "0.18", default-features = false }
 cairo-rs = { version = "0.18", default-features = false }
 glib = { version = "0.18", default-features = false }
 gio = { version = "0.18", default-features = false }
-x11rb = { version = "0.13", default-features = false, features = ["randr"] }
+x11rb = { version = "0.13", default-features = false, features = ["randr", "xfixes"] }
 image = { version = "0.24", default-features = false, features = ["png"] }
 rusqlite = { version = "0.31", default-features = false, features = ["bundled"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }

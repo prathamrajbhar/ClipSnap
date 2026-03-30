@@ -1,102 +1,124 @@
-# 📸 ClipSnap
+# ClipSnap 📸
 
-![License](https://img.shields.io/badge/License-MIT-purple.svg?style=flat-square)
-![Platform](https://img.shields.io/badge/Platform-Linux-blue.svg?style=flat-square)
-![Rust](https://img.shields.io/badge/Built%20With-Rust-orange.svg?style=flat-square)
-
-**A professional, lightweight screenshot & clipboard history manager for Linux.**
-
-ClipSnap seamlessly integrates into your workflow, allowing you to capture specific screen areas instantly and manage your clipboard history with a clean, modern interface.
+**ClipSnap** is a powerful, lightweight, and modern Area Screenshot & Clipboard History Manager designed specifically for Linux. Built with Rust and GTK4, it offers a seamless experience for capturing screens and managing your clipboard history with speed and elegance.
 
 ---
 
 ## ✨ Features
 
-- **🎯 Precision Capture**: Select any screen area to capture.
-- **📋 Clipboard History**: Access, search, and restore past clipboard items.
-- **🚀 Instant Access**: Global hotkeys for minimal friction.
-- **🎨 Modern UI**: Clean interface built with GTK4.
-- **💾 Auto-Save**: History is persistent across reboots (SQLite).
+- **🎯 Precision Area Screenshot**: Capture exactly what you need with an intuitive overlay.
+- **📋 Clipboard history**: Automatically tracks text and image copies.
+- **🔍 Searchable Database**: Quickly find past clipboard entries.
+- **⌨️ Global Hotkeys**: Access features instantly with customizable keyboard shortcuts.
+- **🧹 Auto-Cleanup**: Keep your storage lean with automatic history rotation.
+- **🔔 Native Notifications**: Get instant feedback on captures and actions.
+- **🌑 Modern UI**: Sleek GTK4 interface with dark mode support.
 
 ---
 
-## 🚀 Quick Install (Clone & Run)
+## 🛠️ System Requirements
 
-The easiest way to get started. This script detects your distro, installs dependencies, builds the app, and sets up shortcuts.
+Before installing ClipSnap, ensure your system has the necessary GTK4 and X11 development libraries.
 
+### Debian / Ubuntu / Mint
 ```bash
-# 1. Clone the repository
-git clone https://github.com/prathamrajbhar/ClipSnap.git
-cd ClipSnap
+sudo apt update
+sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+```
 
-# 2. Run the installer
-chmod +x install.sh
-sudo ./install.sh
+### Fedora
+```bash
+sudo dnf install -y gcc pkg-config gtk4-devel libadwaita-devel libX11-devel libxcb-devel
+```
+
+### Arch Linux
+```bash
+sudo pacman -S --needed base-devel pkgconf gtk4 libadwaita libx11 libxcb
 ```
 
 ---
 
-## 🛠️ Manual Installation
+## 🚀 Installation
 
-If you prefer full control, you can build and install manually using the commands below.
-
-**Prerequisites:** `cargo`, `rustc`, `libgtk-4-dev`, `libgdk-pixbuf-2.0-dev`, `libcairo2-dev`, `libx11-dev`
-
+### 1. Prerequisite: Rust
+If you don't have Rust installed, get it via [rustup](https://rustup.rs/):
 ```bash
-# 1. Install Dependencies (Ubuntu/Debian)
-sudo apt update && sudo apt install -y build-essential pkg-config libgtk-4-dev \
-    libgdk-pixbuf-2.0-dev libcairo2-dev libx11-dev libxrandr-dev libsqlite3-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
-# 2. Build the Project
-cargo build --release
+### 2. Install (Automated)
+Clone the repository and run the installation script:
+```bash
+git clone https://github.com/yourusername/clipsnap.git
+cd clipsnap
+make install
+```
+This will:
+- Build the optimized release binary.
+- Install it to `~/.local/bin/clipsnap`.
+- Set up and start a **systemd user service** so ClipSnap runs in the background and starts automatically on login.
 
-# 3. Install Binary & Assets
-sudo cp target/release/clipsnap /usr/local/bin/
-sudo cp resources/clipsnap.desktop /usr/share/applications/
-sudo mkdir -p /etc/clipsnap
-sudo cp resources/default_config.toml /etc/clipsnap/config.toml
+---
 
-echo "✅ Installation Complete!"
+## 📖 Usage
+
+### Managing the Service
+ClipSnap runs as a background service. You can manage it using `systemctl`:
+
+- **Check Status**: `systemctl --user status clipsnap`
+- **Start**: `systemctl --user start clipsnap`
+- **Stop**: `systemctl --user stop clipsnap`
+- **Restart**: `systemctl --user restart clipsnap`
+
+*Note: Ensure `~/.local/bin` is in your `PATH`.*
+
+### Default Shortcuts
+| Action | Shortcut |
+| :--- | :--- |
+| **Capture Area** | `Ctrl + Alt + S` |
+| **Show History** | `Alt + H` |
+
+---
+
+## ⚙️ Configuration
+
+ClipSnap stores its configuration in `~/.config/clipboard-capture/config.toml`. The file is automatically created on the first run.
+
+### Example `config.toml`
+```toml
+[shortcuts]
+screenshot = "Ctrl+Alt+S"
+history = "Alt+H"
+
+[capture]
+format = "png"
+quality = 95
+show_dimensions = true
+
+[history]
+max_entries = 200
+retention_days = 5
+auto_cleanup = true
+
+[storage]
+database_path = "~/.config/clipboard-capture/history.db"
+image_storage = "database"
+
+[ui]
+theme = "auto"
+thumbnail_size = 150
+notification_duration = 2
+
+[privacy]
+exclude_passwords = true
 ```
 
 ---
 
-## ⌨️ Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+Alt+S` | 📸 Take Area Screenshot |
-| `Alt+H` | 📋 Open Clipboard History |
+## 🛡️ License
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-## 🗑️ Uninstall
-
-You can uninstall ClipSnap using the provided script or manually.
-
-### Quick Uninstall
-```bash
-sudo ./uninstall.sh
-```
-
-### Manual Uninstall
-To remove ClipSnap completely from your system, run:
-
-```bash
-# 1. Remove System Files
-sudo rm /usr/local/bin/clipsnap
-sudo rm /usr/share/applications/clipsnap.desktop
-sudo rm -rf /etc/clipsnap
-
-# 2. Remove User Data (Database & Config)
-# Warning: This deletes your entire clipboard history!
-rm -rf ~/.config/clipboard-capture
-```
-
----
-
-## 📜 License
-
-This project is licensed under the [MIT License](LICENSE).
-
-Made with ❤️ by [Pratham Rajbhar](https://github.com/prathamrajbhar)
+## 🤝 Contributing
+Contributions are welcome! Please feel free to submit a Pull Request.
